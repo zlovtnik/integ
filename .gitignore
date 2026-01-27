@@ -1,0 +1,40 @@
+# Dependencies
+/deps/
+/_build/
+/.fetch
+
+# Generated files
+erl_crash.dump
+*.ez
+*.beam
+
+# Release
+/releases/
+/rel/
+
+# Env
+.envrc
+.env
+.env.local
+.env.*.local
+
+# Oracle wallet (sensitive)
+/priv/wallet/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+/cover/
+
+# Dialyzer
+/priv/plts/
+
+# Documentation
+/doc/
