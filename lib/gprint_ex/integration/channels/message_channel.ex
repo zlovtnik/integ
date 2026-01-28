@@ -111,14 +111,12 @@ defmodule GprintEx.Integration.Channels.MessageChannel do
   def init(opts) do
     max_queue_size = Keyword.get(opts, :max_queue_size, @default_max_queue_size)
     channel_name = Keyword.get(opts, :name, self())
-    persistence = Keyword.get(opts, :persistence, false)
 
     state = %{
       name: channel_name,
       queue: MessageQueue.new(),
       subscribers: MapSet.new(),
       max_queue_size: max_queue_size,
-      persistence: persistence,
       stats: %{
         published: 0,
         delivered: 0,

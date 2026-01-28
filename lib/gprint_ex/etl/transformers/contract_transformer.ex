@@ -1,13 +1,13 @@
 defmodule GprintEx.ETL.Transformers.ContractTransformer do
   @moduledoc """
   ETL Transformer for Contract data.
-  
+
   Applies business rules and data quality transformations to contract records.
-  Integrates with ContractTranslator for format conversion and with 
+  Integrates with ContractTranslator for format conversion and with
   PL/SQL etl_pkg for database-side transformations.
-  
+
   ## Example
-  
+
       opts = [validation: :strict, normalize_dates: true]
       {:ok, transformed} = ContractTransformer.transform(records, opts, context)
   """
@@ -174,7 +174,8 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
       case Map.get(acc, key) do
         nil -> acc
         %Decimal{} = d -> Map.put(acc, key, d)
-        value when is_number(value) -> Map.put(acc, key, Decimal.new(value))
+        value when is_integer(value) -> Map.put(acc, key, Decimal.new(value))
+        value when is_float(value) -> Map.put(acc, key, Decimal.from_float(value))
         value when is_binary(value) -> Map.put(acc, key, parse_decimal(value))
         _ -> acc
       end
@@ -182,12 +183,26 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
   end
 
   defp parse_decimal(str) when is_binary(str) do
-    str
-    |> String.replace("R$", "")
-    |> String.replace("$", "")
-    |> String.replace(" ", "")
-    |> String.replace(",", "")
-    |> String.trim()
+    normalized =
+      str
+      |> String.replace("R$", "")
+      |> String.replace("$", "")
+      |> String.replace(" ", "")
+      |> String.trim()
+
+    cond do
+      String.contains?(normalized, ".") and String.contains?(normalized, ",") ->
+        # Brazilian format: remove dots, replace comma with dot
+        normalized
+        |> String.replace(".", "")
+        |> String.replace(",", ".")
+      String.contains?(normalized, ",") ->
+        # European format: replace comma with dot
+        String.replace(normalized, ",", ".")
+      true ->
+        # US format or already normalized
+        normalized
+    end
     |> Decimal.new()
   rescue
     _ -> nil
@@ -198,7 +213,7 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
       nil -> record
       status when is_atom(status) -> record
       status when is_binary(status) ->
-        normalized = 
+        normalized =
           status
           |> String.downcase()
           |> String.trim()
@@ -215,7 +230,12 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
             "cancelado" -> :terminated
             "suspended" -> :suspended
             "suspenso" -> :suspended
-            other -> String.to_atom(other)
+            other ->
+              try do
+                :erlang.binary_to_existing_atom(other, :utf8)
+              rescue
+                ArgumentError -> other
+              end
           end
         Map.put(record, :status, normalized)
       _ -> record

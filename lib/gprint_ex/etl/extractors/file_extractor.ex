@@ -47,9 +47,24 @@ defmodule GprintEx.ETL.Extractors.FileExtractor do
     encoding = Keyword.get(opts, :encoding, :utf8)
 
     stream =
-      file_path
-      |> File.stream!([], :line)
-      |> apply_encoding(encoding)
+      if encoding in [:utf8, :latin1] do
+        file_path
+        |> File.stream!([], :line)
+        |> apply_encoding(encoding)
+      else
+        # For multi-byte encodings, read in binary chunks to avoid breaking characters
+        file_path
+        |> File.stream!([:binary, :read_ahead], 4096)
+        |> Stream.map(fn chunk ->
+          case :unicode.characters_to_binary(chunk, encoding) do
+            binary when is_binary(binary) -> binary
+            {:error, _, _} -> chunk
+            {:incomplete, _, _} -> chunk
+          end
+        end)
+        |> Stream.flat_map(&String.split(&1, "\n"))
+        |> apply_encoding(:utf8) # Already converted, but ensure UTF-8
+      end
       |> stream_parser(format, opts)
       |> Stream.chunk_every(chunk_size)
 
@@ -244,8 +259,9 @@ defmodule GprintEx.ETL.Extractors.FileExtractor do
     parse_csv_fields(rest, delimiter, fields, current, false)
   end
 
-  defp parse_csv_fields(<<char, rest::binary>>, delimiter, fields, current, false) when <<char>> == delimiter do
+  defp parse_csv_fields(binary, delimiter, fields, current, false) when binary_part(binary, 0, byte_size(delimiter)) == delimiter do
     # Delimiter outside quotes
+    <<_del::binary-size(byte_size(delimiter)), rest::binary>> = binary
     parse_csv_fields(rest, delimiter, [current | fields], "", false)
   end
 

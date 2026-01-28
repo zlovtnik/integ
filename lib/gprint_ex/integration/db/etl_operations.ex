@@ -273,12 +273,21 @@ defmodule GprintEx.Integration.DB.ETLOperations do
     """
 
     case OracleConnection.query(:gprint_pool, sql, [session_id]) do
-      {:ok, [row]} ->
+        status = String.downcase(row[:status] || "unknown")
+        status_atom = case status do
+          "unknown" -> :unknown
+          "completed" -> :completed
+          "failed" -> :failed
+          "running" -> :running
+          "pending" -> :pending
+          _ -> :unknown
+        end
+
         {:ok, %{
           session_id: row[:session_id],
           tenant_id: row[:tenant_id],
           source_system: row[:source_system],
-          status: String.to_atom(String.downcase(row[:status] || "unknown")),
+          status: status_atom,
           total_records: row[:total_records] || 0,
           valid_records: row[:valid_records] || 0,
           error_records: row[:error_records] || 0,

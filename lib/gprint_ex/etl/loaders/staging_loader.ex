@@ -1,12 +1,12 @@
 defmodule GprintEx.ETL.Loaders.StagingLoader do
   @moduledoc """
   ETL Loader for staging tables.
-  
+
   Loads transformed data into Oracle staging tables via PL/SQL etl_pkg.
   Supports batch inserts, conflict handling, and validation tracking.
-  
+
   ## Example
-  
+
       opts = [entity_type: :contract, batch_size: 100]
       {:ok, result} = StagingLoader.load(records, opts, context)
   """
@@ -39,7 +39,7 @@ defmodule GprintEx.ETL.Loaders.StagingLoader do
         {:error, reason} ->
           Logger.error("Batch #{idx} failed: #{inspect(reason)}")
           new_acc = %{acc | failed: acc.failed + length(batch), errors: [reason | acc.errors]}
-          
+
           if Keyword.get(opts, :fail_fast, true) do
             {:halt, {:error, new_acc}}
           else
@@ -103,8 +103,15 @@ defmodule GprintEx.ETL.Loaders.StagingLoader do
 
     successes = Enum.count(results, &match?({:ok, _}, &1))
     total_loaded = results |> Enum.filter(&match?({:ok, _}, &1)) |> Enum.map(fn {:ok, n} -> n end) |> Enum.sum()
+    failed = Enum.filter(results, &match?({:error, _}, &1))
 
-    {:ok, %{batches: length(results), successful_batches: successes, loaded: total_loaded}}
+    if failed == [] do
+      {:ok, %{batches: length(results), successful_batches: successes, loaded: total_loaded}}
+    else
+      failed_count = length(failed)
+      error_list = Enum.map(failed, fn {:error, reason} -> reason end)
+      {:error, %{batches: length(results), successful_batches: successes, failed_batches: failed_count, loaded: total_loaded, errors: error_list}}
+    end
   end
 
   # Private functions
@@ -114,45 +121,35 @@ defmodule GprintEx.ETL.Loaders.StagingLoader do
     # For now, simulate the insert
     sql = """
     INSERT INTO etl_staging (
-      session_id, tenant_id, entity_type, entity_id, 
+      session_id, tenant_id, entity_type, entity_id,
       raw_data, transformed_data, validation_status, created_by
     ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8)
     """
 
-    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
-      params = [
-        row.session_id,
-        row.tenant_id,
-        row.entity_type,
-        row.entity_id,
-        row.raw_data,
-        row.transformed_data,
-        row.validation_status,
-        row.created_by
-      ]
+    OracleConnection.transaction(:gprint_pool, fn ->
+      Enum.each(rows, fn row ->
+        params = [
+          row.session_id,
+          row.tenant_id,
+          row.entity_type,
+          row.entity_id,
+          row.raw_data,
+          row.transformed_data,
+          row.validation_status,
+          row.created_by
+        ]
 
-      case OracleConnection.execute(:gprint_pool, sql, params) do
-        {:ok, _} -> {:cont, {:ok, [row | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+        case OracleConnection.execute(:gprint_pool, sql, params) do
+          {:ok, _} -> :ok
+          {:error, reason} -> raise "Insert failed: #{inspect(reason)}"
+        end
+      end)
+
+      {:ok, length(rows)}
     end)
-  rescue
-    e -> {:error, Exception.message(e)}
   end
 
   defp insert_direct_batch(batch, table, context) do
-    # Build dynamic insert based on table
-    tenant_id = context[:tenant_id]
-    user = context[:user] || "SYSTEM"
-
-    batch = Enum.map(batch, fn record ->
-      record
-      |> Map.put(:tenant_id, tenant_id)
-      |> Map.put(:created_by, user)
-      |> Map.put(:created_at, DateTime.utc_now())
-    end)
-
-    # This would use the appropriate PL/SQL package for bulk insert
-    {:ok, length(batch)}
+    raise "insert_direct_batch/3 is not yet implemented"
   end
 end

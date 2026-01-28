@@ -85,7 +85,11 @@ defmodule GprintEx.Integration.Translators.CustomerTranslator do
   def from_staging(row) do
     case row[:transformed_data] do
       nil ->
-        from_external(row[:raw_data], :staging)
+        case row[:raw_data] do
+          data when is_map(data) -> from_external(data, :staging)
+          nil -> {:error, :validation_failed, ["raw_data is missing"]}
+          _ -> {:error, :validation_failed, ["raw_data has invalid type: #{inspect(row[:raw_data])}"]}
+        end
 
       data when is_binary(data) ->
         case Jason.decode(data) do
@@ -95,6 +99,9 @@ defmodule GprintEx.Integration.Translators.CustomerTranslator do
 
       data when is_map(data) ->
         from_external(data, :staging)
+
+      _ ->
+        {:error, :validation_failed, ["transformed_data has unsupported type: #{inspect(row[:transformed_data])}"]}
     end
   end
 

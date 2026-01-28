@@ -183,7 +183,7 @@ defmodule GprintEx.Integration.Routers.DynamicRouter do
 
   def handle_call({:add_route, pattern, destination, opts}, _from, state) do
     entry = %{
-      pattern: pattern,
+      pattern: precompile_pattern(pattern),
       destination: destination,
       priority: Keyword.get(opts, :priority, 100),
       active: Keyword.get(opts, :active, true),
@@ -324,6 +324,7 @@ defmodule GprintEx.Integration.Routers.DynamicRouter do
 
   defp pattern_key(pattern) when is_binary(pattern), do: pattern
   defp pattern_key(%Regex{source: source}), do: {:regex, source}
+  defp pattern_key({:glob_regex, %Regex{source: source}}), do: {:glob_regex, source}
   defp pattern_key(fun) when is_function(fun, 1), do: {:function, :erlang.fun_info(fun, :uniq)}
   defp pattern_key(_), do: :unknown
 

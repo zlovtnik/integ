@@ -441,6 +441,9 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
         RETURN v_result;
     EXCEPTION
         WHEN OTHERS THEN
+            -- Log transformation error for debugging
+            INSERT INTO integration_logs (message, error_details, created_at)
+            VALUES ('XML to JSON transformation failed', 'Message: ' || SUBSTR(p_message, 1, 1000) || ', Error: ' || SQLERRM, SYSTIMESTAMP);
             -- Return original if transformation fails
             RETURN p_message;
     END transform_message;
@@ -526,7 +529,7 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
                 v_new_result := '[' || p_message || ']';
             ELSE
                 -- Insert before the closing bracket
-                v_new_result := RTRIM(v_current_result, ']') || ',' || p_message || ']';
+                v_new_result := SUBSTR(v_current_result, 1, LENGTH(v_current_result) - 1) || ',' || p_message || ']';
             END IF;
             
             UPDATE message_aggregation SET
@@ -553,27 +556,36 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
                 EXCEPTION
                     WHEN DUP_VAL_ON_INDEX THEN
                         -- Race: another session created it first - retry update once
-                        SELECT aggregated_result INTO v_current_result
-                        FROM message_aggregation
-                        WHERE correlation_id = p_correlation_id
-                          AND aggregation_key = p_aggregation_key
-                          AND status = c_agg_pending
-                        FOR UPDATE;
-                        
-                        v_new_result := RTRIM(NVL(v_current_result, '[]'), ']');
-                        IF v_new_result = '[' THEN
-                            v_new_result := '[' || p_message || ']';
-                        ELSE
-                            v_new_result := v_new_result || ',' || p_message || ']';
-                        END IF;
-                        
-                        UPDATE message_aggregation SET
-                            aggregated_result = v_new_result,
-                            current_count = current_count + 1
-                        WHERE correlation_id = p_correlation_id
-                          AND aggregation_key = p_aggregation_key;
-                        
-                        COMMIT;
+                        BEGIN
+                            SELECT aggregated_result INTO v_current_result
+                            FROM message_aggregation
+                            WHERE correlation_id = p_correlation_id
+                              AND aggregation_key = p_aggregation_key
+                              AND status = c_agg_pending
+                            FOR UPDATE;
+                            
+                            v_new_result := NVL(v_current_result, '[]');
+                            IF SUBSTR(v_new_result, -1) = ']' THEN
+                                v_new_result := SUBSTR(v_new_result, 1, LENGTH(v_new_result) - 1);
+                            END IF;
+                            IF v_new_result = '[' THEN
+                                v_new_result := '[' || p_message || ']';
+                            ELSE
+                                v_new_result := v_new_result || ',' || p_message || ']';
+                            END IF;
+                            
+                            UPDATE message_aggregation SET
+                                aggregated_result = v_new_result,
+                                current_count = current_count + 1
+                            WHERE correlation_id = p_correlation_id
+                              AND aggregation_key = p_aggregation_key;
+                            
+                            COMMIT;
+                        EXCEPTION
+                            WHEN NO_DATA_FOUND THEN
+                                -- Row no longer exists, skip update
+                                NULL;
+                        END;
                 END;
         END;
     END add_to_aggregation;
@@ -731,6 +743,7 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
         v_src_offset INTEGER := 1;
         v_lang_context INTEGER := DBMS_LOB.DEFAULT_LANG_CTX;
         v_warning INTEGER;
+        v_hash VARCHAR2(64);
     BEGIN
         -- Convert CLOB to BLOB for DBMS_CRYPTO.HASH (handles >32KB)
         DBMS_LOB.CREATETEMPORARY(v_blob, TRUE);
@@ -745,7 +758,9 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
             warning => v_warning
         );
         
-        RETURN RAWTOHEX(DBMS_CRYPTO.HASH(v_blob, DBMS_CRYPTO.HASH_SH256));
+        v_hash := RAWTOHEX(DBMS_CRYPTO.HASH(v_blob, DBMS_CRYPTO.HASH_SH256));
+        DBMS_LOB.FREETEMPORARY(v_blob);
+        RETURN v_hash;
     EXCEPTION
         WHEN OTHERS THEN
             IF v_blob IS NOT NULL THEN

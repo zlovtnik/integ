@@ -95,6 +95,9 @@ defmodule GprintEx.Integration.Translators.ContractTranslator do
 
       data when is_map(data) ->
         from_external(data, :staging)
+
+      _ ->
+        {:error, :validation_failed, ["Unexpected transformed_data type: #{inspect(row[:transformed_data])}"]}
     end
   end
 

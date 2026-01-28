@@ -564,6 +564,7 @@ CREATE OR REPLACE PACKAGE BODY etl_pkg AS
               AND status = c_record_transformed
         ) LOOP
             v_has_error := FALSE;
+            v_errors := '';
             BEGIN
                 -- Parse and validate JSON data
                 v_json_obj := JSON_OBJECT_T.parse(r.transformed_data);
@@ -572,34 +573,33 @@ CREATE OR REPLACE PACKAGE BODY etl_pkg AS
                 IF r.entity_type = 'CONTRACT' THEN
                     -- Validate required contract fields
                     IF NOT v_json_obj.has('tenant_id') THEN
-                        v_result := validation_result_t(r.seq_num, 'MISSING_FIELD', 'tenant_id is required', 'seq_num=' || r.seq_num);
+                        v_errors := v_errors || 'tenant_id is required; ';
                         v_has_error := TRUE;
-                        PIPE ROW(v_result);
                     END IF;
                     
                     IF NOT v_json_obj.has('contract_number') THEN
-                        v_result := validation_result_t(r.seq_num, 'MISSING_FIELD', 'contract_number is required', 'seq_num=' || r.seq_num);
+                        v_errors := v_errors || 'contract_number is required; ';
                         v_has_error := TRUE;
-                        PIPE ROW(v_result);
                     END IF;
                     
                 ELSIF r.entity_type = 'CUSTOMER' THEN
                     -- Validate required customer fields
                     IF NOT v_json_obj.has('tenant_id') THEN
-                        v_result := validation_result_t(r.seq_num, 'MISSING_FIELD', 'tenant_id is required', 'seq_num=' || r.seq_num);
+                        v_errors := v_errors || 'tenant_id is required; ';
                         v_has_error := TRUE;
-                        PIPE ROW(v_result);
                     END IF;
                     
                     IF NOT v_json_obj.has('customer_code') THEN
-                        v_result := validation_result_t(r.seq_num, 'MISSING_FIELD', 'customer_code is required', 'seq_num=' || r.seq_num);
+                        v_errors := v_errors || 'customer_code is required; ';
                         v_has_error := TRUE;
-                        PIPE ROW(v_result);
                     END IF;
                 END IF;
                 
-                -- Only pipe success if no errors for this record
-                IF NOT v_has_error THEN
+                -- Pipe result for this record
+                IF v_has_error THEN
+                    v_result := validation_result_t(r.seq_num, 'MISSING_FIELD', RTRIM(v_errors, '; '), 'seq_num=' || r.seq_num);
+                    PIPE ROW(v_result);
+                ELSE
                     v_result := validation_result_t(r.seq_num, 'VALID', 'Record passed validation', NULL);
                     PIPE ROW(v_result);
                 END IF;
@@ -619,6 +619,9 @@ CREATE OR REPLACE PACKAGE BODY etl_pkg AS
         p_session_id IN VARCHAR2
     ) IS
     BEGIN
+        -- Ensure session is active before applying changes
+        ensure_session_active(p_session_id);
+        
         -- Collect validation results and update staging records
         FOR r IN (SELECT * FROM TABLE(validate_staging_data(p_session_id))) LOOP
             IF r.issue_type = 'VALID' THEN

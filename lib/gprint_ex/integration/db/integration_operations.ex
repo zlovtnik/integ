@@ -104,7 +104,7 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
   @doc """
   Check for duplicate message via INTEGRATION_PKG.is_duplicate_message.
   """
-  @spec is_duplicate?(String.t(), String.t(), non_neg_integer()) :: boolean()
+  @spec is_duplicate?(String.t(), String.t(), non_neg_integer()) :: {:ok, boolean()} | {:error, term()}
   def is_duplicate?(message_id, message_hash, window_minutes \\ 60) do
     sql = """
     SELECT integration_pkg.is_duplicate_message(:message_id, :message_hash, :window_minutes)
@@ -114,9 +114,10 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
     params = [message_id, message_hash, window_minutes]
 
     case OracleConnection.query(:gprint_pool, sql, params) do
-      {:ok, [[1]]} -> true
-      {:ok, [[0]]} -> false
-      _ -> false
+      {:ok, [[1]]} -> {:ok, true}
+      {:ok, [[0]]} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_result, other}}
     end
   end
 
@@ -174,7 +175,7 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
   @doc """
   Add message to aggregation via INTEGRATION_PKG.add_to_aggregation.
   """
-  @spec add_to_aggregation(pos_integer(), String.t()) :: {:ok, boolean()} | {:error, term()}
+  @spec add_to_aggregation(pos_integer(), String.t() | map()) :: {:ok, boolean()} | {:error, term()}
   def add_to_aggregation(aggregation_id, message_payload) do
     payload = if is_map(message_payload), do: Jason.encode!(message_payload), else: message_payload
 
@@ -251,13 +252,19 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
         {:error, :max_retries}
 
       {:ok, %{out: next_retry}} ->
-        {:ok, DateTime.from_iso8601!(next_retry <> "Z")}
+        case DateTime.from_iso8601(next_retry <> "Z") do
+          {:ok, datetime, _} -> {:ok, datetime}
+          {:error, reason} -> {:error, reason}
+        end
 
       {:ok, [nil]} ->
         {:error, :max_retries}
 
       {:ok, [next_retry]} ->
-        {:ok, DateTime.from_iso8601!(next_retry <> "Z")}
+        case DateTime.from_iso8601(next_retry <> "Z") do
+          {:ok, datetime, _} -> {:ok, datetime}
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, error} ->
         {:error, error}

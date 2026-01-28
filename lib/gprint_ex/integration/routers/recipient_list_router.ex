@@ -175,7 +175,7 @@ defmodule GprintEx.Integration.Routers.RecipientListRouter do
       result = apply(module, function, [message])
       case result do
         {:error, reason} -> {:error, {module, function}, reason}
-        _ -> {:ok, {module, function}, result}
+        _ -> {:ok, {module, function}}
       end
     rescue
       e -> {:error, {module, function}, e}

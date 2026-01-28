@@ -15,6 +15,8 @@ defmodule GprintEx.Integration.DB.ContractOperations do
   alias GprintEx.Infrastructure.Repo.OracleConnection
   alias GprintEx.Result
 
+  @oracle_invalid_transition_error -20001
+
   @doc """
   Insert a new contract via CONTRACT_PKG.insert_contract.
   """
@@ -97,7 +99,7 @@ defmodule GprintEx.Integration.DB.ContractOperations do
   end
 
   @doc """
-  Get contract by ID via CONTRACT_PKG.get_contract_by_id.
+  Get contract by ID from contracts table.
   """
   @spec get_by_id(String.t(), pos_integer()) :: {:ok, Contract.t()} | {:error, :not_found | term()}
   def get_by_id(tenant_id, id) do
@@ -141,7 +143,7 @@ defmodule GprintEx.Integration.DB.ContractOperations do
 
     case execute_with_telemetry(:update_contract_status, sql, params) do
       {:ok, _} -> get_by_id(tenant_id, id)
-      {:error, %{code: -20001}} -> {:error, :invalid_transition}
+      {:error, %{code: @oracle_invalid_transition_error}} -> {:error, :invalid_transition}
       {:error, error} -> map_oracle_error(error)
     end
   end
@@ -149,7 +151,7 @@ defmodule GprintEx.Integration.DB.ContractOperations do
   @doc """
   Validate contract via CONTRACT_PKG.validate_contract.
   """
-  @spec validate(Contract.t()) :: {:ok, Contract.t()} | {:error, :validation_failed, [String.t()]}
+  @spec validate(Contract.t()) :: {:ok, Contract.t()} | {:error, {:validation_failed, [String.t()]}}
   def validate(%Contract{} = contract) do
     sql = """
     DECLARE
@@ -171,13 +173,13 @@ defmodule GprintEx.Integration.DB.ContractOperations do
       messages: {:out, :string}
     ]
 
-    case OracleConnection.execute(:gprint_pool, sql, params) do
+    case execute_with_telemetry(:validate_contract, sql, params) do
       {:ok, %{is_valid: 1}} ->
         {:ok, contract}
 
       {:ok, %{is_valid: 0, messages: messages}} ->
         errors = String.split(messages || "", ";") |> Enum.reject(&(&1 == ""))
-        {:error, :validation_failed, errors}
+        {:error, {:validation_failed, errors}}
 
       {:error, error} ->
         map_oracle_error(error)
@@ -187,16 +189,17 @@ defmodule GprintEx.Integration.DB.ContractOperations do
   @doc """
   Check if status transition is valid.
   """
-  @spec valid_transition?(atom(), atom()) :: boolean()
+  @spec valid_transition?(atom(), atom()) :: {:ok, boolean()} | {:error, term()}
   def valid_transition?(from_status, to_status) do
     sql = """
     SELECT contract_pkg.is_valid_transition(:from_status, :to_status) FROM DUAL
     """
 
-    case OracleConnection.query(:gprint_pool, sql, [to_string(from_status), to_string(to_status)]) do
-      {:ok, [[1]]} -> true
-      {:ok, [[0]]} -> false
-      _ -> false
+    case OracleConnection.query(:gprint_pool, sql, [from_status: to_string(from_status), to_status: to_string(to_status)]) do
+      {:ok, [[1]]} -> {:ok, true}
+      {:ok, [[0]]} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_result, other}}
     end
   end
 
@@ -250,7 +253,7 @@ defmodule GprintEx.Integration.DB.ContractOperations do
       end_date: format_date(contract.end_date),
       status: to_string(contract.status),
       total_value: contract.total_value,
-      currency_code: contract.currency_code
+      currency_code: contract.currency_code || "BRL"
     }
   end
 
@@ -274,20 +277,20 @@ defmodule GprintEx.Integration.DB.ContractOperations do
   defp format_date(date), do: date
 
   defp map_oracle_error(%{code: 1, message: msg}) do
-    {:error, :unique_violation, msg}
+    {:error, {:unique_violation, msg}}
   end
 
   defp map_oracle_error(%{code: 2291, message: msg}) do
-    {:error, :foreign_key_violation, msg}
+    {:error, {:foreign_key_violation, msg}}
   end
 
   defp map_oracle_error(%{code: code, message: msg}) when code >= -20999 and code <= -20000 do
     # Application-defined errors
-    {:error, :business_error, msg}
+    {:error, {:business_error, msg}}
   end
 
   defp map_oracle_error(error) do
     Logger.error("Oracle error: #{inspect(error)}")
-    {:error, :db_error}
+    {:error, {:db_error, inspect(error)}}
   end
 end
