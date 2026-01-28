@@ -1,0 +1,55 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: gprint-ex
+    runtime: elixir
+    plan: starter
+    buildCommand: |
+      mix local.hex --force
+      mix local.rebar --force
+      mix deps.get --only prod
+      MIX_ENV=prod mix compile
+      MIX_ENV=prod mix phx.digest
+    startCommand: MIX_ENV=prod mix phx.server
+    healthCheckPath: /api/health
+    envVars:
+      - key: MIX_ENV
+        value: prod
+      - key: PHX_SERVER
+        value: "true"
+      - key: PORT
+        value: "4000"
+      - key: SECRET_KEY_BASE
+        sync: false
+      - key: ORACLE_HOST
+        sync: false
+      - key: ORACLE_PORT
+        value: "1522"
+      - key: ORACLE_DATABASE
+        sync: false
+      - key: ORACLE_USER
+        sync: false
+      - key: ORACLE_PASSWORD
+        sync: false
+      - key: ORACLE_WALLET_PATH
+        value: /opt/render/project/src/wallet
+      - key: ORACLE_TNS_ALIAS
+        sync: false
+      - key: ORACLE_POOL_SIZE
+        value: "5"
+      - key: KEYCLOAK_URL
+        sync: false
+      - key: KEYCLOAK_REALM
+        sync: false
+      - key: KEYCLOAK_CLIENT_ID
+        sync: false
+      - key: KEYCLOAK_CLIENT_SECRET
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ELIXIR_VERSION
+        value: "1.18.4"
+      - key: ERLANG_VERSION
+        value: "27.2"
