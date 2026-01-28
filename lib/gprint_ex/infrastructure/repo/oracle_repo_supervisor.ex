@@ -7,6 +7,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleRepoSupervisor do
 
   Environment Configuration (must be set before app start):
   - ORACLE_WALLET_PATH: Path to wallet directory
+  - ORACLE_WALLET_BASE64: Base64 wallet zip (alternative to ORACLE_WALLET_PATH)
   - ORACLE_TNS_ALIAS: TNS alias (e.g., mydb_high)
   - ORACLE_USER: Database username
   - ORACLE_PASSWORD: Database password
@@ -21,6 +22,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleRepoSupervisor do
   require Logger
 
   alias GprintEx.Infrastructure.Repo.OracleConnection
+  alias GprintEx.Infrastructure.WalletSetup
 
   @pool_name GprintEx.OraclePool
   @default_pool_size 2
@@ -118,8 +120,10 @@ defmodule GprintEx.Infrastructure.Repo.OracleRepoSupervisor do
 
   defp build_connection_config(pool_size) do
     wallet_path =
-      System.get_env("ORACLE_WALLET_PATH") ||
-        raise "ORACLE_WALLET_PATH not set"
+      case WalletSetup.ensure_wallet() do
+        {:ok, path} -> path
+        {:error, reason} -> raise "Oracle wallet unavailable: #{inspect(reason)}"
+      end
 
     tns_alias =
       System.get_env("ORACLE_TNS_ALIAS") ||

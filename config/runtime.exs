@@ -6,8 +6,20 @@ import Config
 if config_env() == :prod do
   # Oracle Database configuration
   oracle_wallet_path =
-    System.get_env("ORACLE_WALLET_PATH") ||
-      raise "ORACLE_WALLET_PATH environment variable is required"
+    case System.get_env("ORACLE_WALLET_PATH") do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: value
+    end
+
+  oracle_wallet_base64 =
+    case System.get_env("ORACLE_WALLET_BASE64") do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: value
+    end
+
+  if is_nil(oracle_wallet_path) and is_nil(oracle_wallet_base64) do
+    raise "Either ORACLE_WALLET_PATH or ORACLE_WALLET_BASE64 must be provided"
+  end
 
   config :gprint_ex,
     oracle_wallet_path: oracle_wallet_path,

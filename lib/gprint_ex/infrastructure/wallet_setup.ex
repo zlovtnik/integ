@@ -31,12 +31,12 @@ defmodule GprintEx.Infrastructure.WalletSetup do
   @spec ensure_wallet() :: {:ok, String.t()} | {:error, term()}
   def ensure_wallet do
     cond do
-      # Option 1: Direct path to wallet directory
-      path = System.get_env("ORACLE_WALLET_PATH") ->
+      # Option 1: Direct path to wallet directory (ignore blank strings)
+      path = present_env("ORACLE_WALLET_PATH") ->
         validate_wallet_path(path)
 
-      # Option 2: Base64-encoded wallet zip
-      base64 = System.get_env("ORACLE_WALLET_BASE64") ->
+      # Option 2: Base64-encoded wallet zip (ignore blank strings)
+      base64 = present_env("ORACLE_WALLET_BASE64") ->
         extract_wallet_from_base64(base64)
 
       # Option 3: Default development path
@@ -57,6 +57,15 @@ defmodule GprintEx.Infrastructure.WalletSetup do
          {:ok, _} <- validate_wallet_path(extract_path) do
       Logger.info("Oracle wallet extracted to: #{extract_path}")
       {:ok, extract_path}
+    end
+  end
+
+  defp present_env(var) do
+    case System.get_env(var) do
+      nil -> nil
+      value ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
     end
   end
 
