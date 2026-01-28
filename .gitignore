@@ -1,40 +1,106 @@
-# Dependencies
-/deps/
+# ==============================================================================
+# Elixir/Phoenix
+# ==============================================================================
+
+# The directory Mix will write compiled artifacts to.
 /_build/
+
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# Ignore .fetch files in case you like to edit your project deps locally.
 /.fetch
 
-# Generated files
+# If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
 *.ez
-*.beam
 
+# Temporary files for e.g. tests
+/tmp/
+
+# ==============================================================================
+# Phoenix
+# ==============================================================================
+
+# Ignore assets that are produced by build tools.
+/priv/static/assets/
+
+# Ignore digested assets cache.
+/priv/static/cache_manifest.json
+
+# In case you use Node.js/Webpack for assets
+/assets/node_modules/
+
+# ==============================================================================
 # Release
-/releases/
-/rel/
+# ==============================================================================
 
-# Env
-.envrc
+# Ignore release artifacts
+/_build/prod/rel/
+
+# ==============================================================================
+# Environment & Secrets
+# ==============================================================================
+
+# Environment files with secrets
 .env
 .env.local
 .env.*.local
 
-# Oracle wallet (sensitive)
-/priv/wallet/
+# Keep the example
+!.env.example
 
-# IDE
-.idea/
+# Oracle wallet files (sensitive)
+/wallet/
+*.sso
+*.p12
+
+# ==============================================================================
+# IDE & Editor
+# ==============================================================================
+
+# Elixir Language Server
+/.elixir_ls/
+
+# VSCode
+/.vscode/
+*.code-workspace
+
+# IntelliJ / JetBrains
+/.idea/
 *.iml
-.vscode/
 
-# OS
+# Vim
+*.swp
+*.swo
+*~
+
+# macOS
 .DS_Store
-Thumbs.db
+.AppleDouble
+.LSOverride
 
-# Test coverage
-/cover/
+# ==============================================================================
+# Testing & Analysis
+# ==============================================================================
 
-# Dialyzer
+# Dialyzer PLT files (generated in /priv/plts/ by dialyxir)
 /priv/plts/
 
-# Documentation
-/doc/
+# ExCoveralls
+/coveralls.json
+
+# ==============================================================================
+# Docker
+# ==============================================================================
+
+# Docker environment overrides
+docker-compose.override.yml
