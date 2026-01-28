@@ -63,7 +63,7 @@ defmodule GprintEx.Infrastructure.Auth.JwtValidator do
   end
 
   defp decode_and_verify(token, secret) do
-    jwk = %JOSE.JWK{kty: {:oct, secret}}
+    jwk = JOSE.JWK.from_oct(secret)
 
     case JOSE.JWT.verify_strict(jwk, ["HS256"], token) do
       {true, %JOSE.JWT{fields: claims}, _jws} ->
