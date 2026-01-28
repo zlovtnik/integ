@@ -281,7 +281,7 @@ defmodule GprintEx.Domain.Contract do
       payment_terms: Map.get(params, :payment_terms) || Map.get(params, "payment_terms"),
       billing_cycle:
         coalesce(Map.get(params, :billing_cycle), Map.get(params, "billing_cycle"), "MONTHLY"),
-      status: normalize_status(Map.get(params, :status) || Map.get(params, "status")) || :draft,
+      status: normalize_status(Map.get(params, :status) || Map.get(params, "status")),
       signed_at: Map.get(params, :signed_at) || Map.get(params, "signed_at"),
       signed_by: Map.get(params, :signed_by) || Map.get(params, "signed_by"),
       notes: Map.get(params, :notes) || Map.get(params, "notes")

@@ -48,10 +48,22 @@ defmodule GprintEx.Application do
 
   # Set TNS_ADMIN environment variable for Oracle wallet location
   # Must be done once at startup, not per-worker
+  # Supports: ORACLE_WALLET_PATH (direct path) or ORACLE_WALLET_BASE64 (base64 zip)
   defp set_oracle_tns_admin do
+    alias GprintEx.Infrastructure.WalletSetup
+
+    # Try to get wallet path from WalletSetup (handles base64 decoding)
     wallet_path =
-      Application.get_env(:gprint_ex, :oracle_wallet_path) ||
-        System.get_env("ORACLE_WALLET_PATH")
+      case WalletSetup.ensure_wallet() do
+        {:ok, path} ->
+          path
+
+        {:error, reason} ->
+          Logger.warning("Wallet setup failed: #{inspect(reason)} - checking config fallback")
+
+          # Fallback to config value
+          Application.get_env(:gprint_ex, :oracle_wallet_path)
+      end
 
     # Normalize: treat empty or whitespace-only strings as nil
     normalized_path =

@@ -107,6 +107,7 @@ defmodule GprintEx.Domain.ContractItem do
       |> validate_required(params, :contract_id)
       |> validate_required(params, :description)
       |> validate_required(params, :quantity)
+      |> validate_required(params, :unit_price)
       |> validate_positive(params, :quantity)
       |> validate_non_negative(params, :unit_price)
 

@@ -11,6 +11,15 @@ defmodule GprintExWeb.ContractController do
 
   action_fallback GprintExWeb.FallbackController
 
+  @allowed_statuses ~w(draft pending active suspended cancelled completed)
+
+  # Private helper for consistent invalid ID responses
+  defp invalid_id_response(conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
+  end
+
   def index(conn, params) do
     ctx = AuthPlug.tenant_context(conn)
 
@@ -38,11 +47,8 @@ defmodule GprintExWeb.ContractController do
     ctx = AuthPlug.tenant_context(conn)
 
     case parse_int(id) do
-      {:error, :invalid_id} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
-
+      nil -> invalid_id_response(conn)
+      {:error, :invalid_id} -> invalid_id_response(conn)
       parsed_id ->
         with {:ok, contract} <- Contracts.get_by_id(ctx, parsed_id) do
           conn
@@ -76,11 +82,8 @@ defmodule GprintExWeb.ContractController do
     ctx = AuthPlug.tenant_context(conn)
 
     case parse_int(id) do
-      {:error, :invalid_id} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
-
+      nil -> invalid_id_response(conn)
+      {:error, :invalid_id} -> invalid_id_response(conn)
       parsed_id ->
         with {:ok, contract} <- Contracts.update(ctx, parsed_id, contract_params) do
           conn
@@ -102,16 +105,11 @@ defmodule GprintExWeb.ContractController do
     ctx = AuthPlug.tenant_context(conn)
 
     case parse_int(id) do
-      {:error, :invalid_id} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
-
+      nil -> invalid_id_response(conn)
+      {:error, :invalid_id} -> invalid_id_response(conn)
       parsed_id ->
         with :ok <- Contracts.delete(ctx, parsed_id) do
-          conn
-          |> put_status(:no_content)
-          |> send_resp(:no_content, "")
+          send_resp(conn, :no_content, "")
         end
     end
   end
@@ -120,21 +118,30 @@ defmodule GprintExWeb.ContractController do
     ctx = AuthPlug.tenant_context(conn)
 
     case parse_int(contract_id) do
-      {:error, :invalid_id} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
-
+      nil -> invalid_id_response(conn)
+      {:error, :invalid_id} -> invalid_id_response(conn)
       parsed_id ->
-        status_atom = parse_atom(new_status)
+        case parse_atom(new_status) do
+          nil ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{
+              success: false,
+              error: %{
+                code: "INVALID_STATUS",
+                message: "Invalid status. Allowed: #{Enum.join(@allowed_statuses, ", ")}"
+              }
+            })
 
-        with {:ok, contract} <- Contracts.transition_status(ctx, parsed_id, status_atom) do
-          conn
-          |> put_status(:ok)
-          |> json(%{
-            success: true,
-            data: Contract.to_response(contract)
-          })
+          status_atom ->
+            with {:ok, contract} <- Contracts.transition_status(ctx, parsed_id, status_atom) do
+              conn
+              |> put_status(:ok)
+              |> json(%{
+                success: true,
+                data: Contract.to_response(contract)
+              })
+            end
         end
     end
   end
@@ -148,8 +155,6 @@ defmodule GprintExWeb.ContractController do
   defp maybe_add(opts, _key, nil), do: opts
   defp maybe_add(opts, _key, ""), do: opts
   defp maybe_add(opts, key, value), do: Keyword.put(opts, key, value)
-
-  @allowed_statuses ~w(draft pending active suspended cancelled completed)
 
   defp parse_int(nil), do: nil
   defp parse_int(val) when is_integer(val), do: val

@@ -23,6 +23,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
   - `:user` - Database username (required)
   - `:password` - Database password (required)
   - `:pool_size` - Number of connections (default: 10)
+  - `:hostname` - Oracle host (optional, extracted from TNS description if not provided)
   """
   def child_spec(opts) do
     %{
@@ -44,19 +45,31 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
     # Read TNS description from tnsnames.ora
     description = read_tns_description(wallet_path, tns_alias)
 
+    # Extract hostname from opts or derive from TNS description
+    hostname = Keyword.get(opts, :hostname) || extract_host_from_description(description)
+
     # SSL options for Oracle ADB with wallet authentication
-    # cwallet.sso is the auto-login wallet file containing the CA certificate
+    # NOTE: Using verify: :verify_none due to jamdb_oracle limitation with Oracle wallet
+    # authentication. Oracle ADB wallets use cwallet.sso which contains both the client
+    # certificate and CA chain in a proprietary format that Erlang :ssl cannot parse
+    # directly as a CA cert file. Proper verification would require extracting CA certs
+    # to PEM format. See: https://github.com/erlangbureau/jamdb_oracle/issues/190
+    # TODO: Extract CA certs from wallet to truststore.pem and enable :verify_peer
     ssl_opts = [
       cacertfile: Path.join(wallet_path, "cwallet.sso"),
       verify: :verify_none
     ]
+
+    if Application.get_env(:gprint_ex, :warn_insecure_ssl, true) do
+      Logger.warning("Oracle connection using verify: :verify_none - SSL certificate validation disabled")
+    end
 
     # Build jamdb_oracle connection options
     # IMPORTANT: Both 'description' and 'ssl' must be passed via 'parameters' option
     # because the Elixir wrapper only forwards 'parameters' to the Erlang layer
     conn_opts = [
       name: name,
-      hostname: "adb.us-chicago-1.oraclecloud.com",
+      hostname: hostname,
       port: 1522,
       database: tns_alias,
       username: user,
@@ -235,6 +248,19 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
       {:error, reason} ->
         raise "Failed to read tnsnames.ora from #{tnsnames_path}: #{inspect(reason)}"
     end
+  end
+
+  # Extract hostname from TNS description string
+  # Parses patterns like: (host=hostname.example.com) or (HOST=hostname.example.com)
+  defp extract_host_from_description(description) when is_binary(description) do
+    case Regex.run(~r/\(host=([^)]+)\)/i, description) do
+      [_, host] -> String.trim(host)
+      nil -> raise "Could not extract HOST from TNS description: #{description}"
+    end
+  end
+
+  defp extract_host_from_description(nil) do
+    raise "TNS description is nil - cannot extract hostname"
   end
 
   # Parse a TNS entry from tnsnames.ora content
