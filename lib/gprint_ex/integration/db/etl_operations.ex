@@ -273,6 +273,7 @@ defmodule GprintEx.Integration.DB.ETLOperations do
     """
 
     case OracleConnection.query(:gprint_pool, sql, [session_id]) do
+      {:ok, [row]} ->
         status = String.downcase(row[:status] || "unknown")
         status_atom = case status do
           "created" -> :created
