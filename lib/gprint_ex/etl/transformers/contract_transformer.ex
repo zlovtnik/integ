@@ -192,10 +192,19 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
 
     cond do
       String.contains?(normalized, ".") and String.contains?(normalized, ",") ->
-        # Brazilian format: remove dots, replace comma with dot
-        normalized
-        |> String.replace(".", "")
-        |> String.replace(",", ".")
+        # Detect format by last separator position
+        last_dot = last_index(normalized, ".")
+        last_comma = last_index(normalized, ",")
+
+        if last_comma > last_dot do
+          # Brazilian/European format: comma is decimal separator
+          normalized
+          |> String.replace(".", "")
+          |> String.replace(",", ".")
+        else
+          # US format: dot is decimal separator
+          String.replace(normalized, ",", "")
+        end
       String.contains?(normalized, ",") ->
         # European format: replace comma with dot
         String.replace(normalized, ",", ".")
@@ -206,6 +215,13 @@ defmodule GprintEx.ETL.Transformers.ContractTransformer do
     |> Decimal.new()
   rescue
     _ -> nil
+  end
+
+  defp last_index(string, char) do
+    case :binary.matches(string, char) do
+      [] -> -1
+      matches -> matches |> List.last() |> elem(0)
+    end
   end
 
   defp normalize_status(record) do

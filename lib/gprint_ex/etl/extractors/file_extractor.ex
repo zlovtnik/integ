@@ -52,18 +52,36 @@ defmodule GprintEx.ETL.Extractors.FileExtractor do
         |> File.stream!([], :line)
         |> apply_encoding(encoding)
       else
-        # For multi-byte encodings, read in binary chunks to avoid breaking characters
+        # For multi-byte encodings, read in binary chunks with proper boundary handling
         file_path
         |> File.stream!([:binary, :read_ahead], 4096)
-        |> Stream.map(fn chunk ->
-          case :unicode.characters_to_binary(chunk, encoding) do
-            binary when is_binary(binary) -> binary
-            {:error, _, _} -> chunk
-            {:incomplete, _, _} -> chunk
+        |> Stream.transform("", fn chunk, leftover ->
+          input = leftover <> chunk
+          case :unicode.characters_to_binary(input, encoding) do
+            binary when is_binary(binary) ->
+              # Split on newlines, keeping last partial line for next chunk
+              lines = String.split(binary, "\n", trim: false)
+              case lines do
+                [] -> {[], ""}
+                [single] -> {[], single}
+                _ ->
+                  {complete, [partial]} = Enum.split(lines, -1)
+                  {complete, partial}
+              end
+            {:incomplete, converted, rest} ->
+              lines = String.split(converted, "\n", trim: false)
+              case lines do
+                [] -> {[], rest}
+                [single] -> {[], single <> rest}
+                _ ->
+                  {complete, [partial]} = Enum.split(lines, -1)
+                  {complete, partial <> rest}
+              end
+            {:error, _, _} ->
+              Logger.error("Failed to decode chunk with encoding #{encoding}")
+              {[], leftover}
           end
         end)
-        |> Stream.flat_map(&String.split(&1, "\n"))
-        |> apply_encoding(:utf8) # Already converted, but ensure UTF-8
       end
       |> stream_parser(format, opts)
       |> Stream.chunk_every(chunk_size)

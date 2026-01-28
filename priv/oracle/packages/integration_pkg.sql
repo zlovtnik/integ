@@ -441,9 +441,10 @@ CREATE OR REPLACE PACKAGE BODY integration_pkg AS
         RETURN v_result;
     EXCEPTION
         WHEN OTHERS THEN
-            -- Log transformation error for debugging
+            -- Log transformation error for debugging (without sensitive message content)
             INSERT INTO integration_logs (message, error_details, created_at)
-            VALUES ('XML to JSON transformation failed', 'Message: ' || SUBSTR(p_message, 1, 1000) || ', Error: ' || SQLERRM, SYSTIMESTAMP);
+            VALUES (p_source_format || ' to ' || p_target_format || ' transformation failed', 
+                    'Error: ' || SQLERRM, SYSTIMESTAMP);
             -- Return original if transformation fails
             RETURN p_message;
     END transform_message;

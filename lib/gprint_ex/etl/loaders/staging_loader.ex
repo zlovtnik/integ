@@ -126,30 +126,39 @@ defmodule GprintEx.ETL.Loaders.StagingLoader do
     ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8)
     """
 
-    OracleConnection.transaction(:gprint_pool, fn ->
-      Enum.each(rows, fn row ->
-        params = [
-          row.session_id,
-          row.tenant_id,
-          row.entity_type,
-          row.entity_id,
-          row.raw_data,
-          row.transformed_data,
-          row.validation_status,
-          row.created_by
-        ]
+    try do
+      OracleConnection.transaction(:gprint_pool, fn ->
+        result = Enum.reduce_while(rows, {:ok, 0}, fn row, {:ok, count} ->
+          params = [
+            row.session_id,
+            row.tenant_id,
+            row.entity_type,
+            row.entity_id,
+            row.raw_data,
+            row.transformed_data,
+            row.validation_status,
+            row.created_by
+          ]
 
-        case OracleConnection.execute(:gprint_pool, sql, params) do
-          {:ok, _} -> :ok
-          {:error, reason} -> raise "Insert failed: #{inspect(reason)}"
+          case OracleConnection.execute(:gprint_pool, sql, params) do
+            {:ok, _} -> {:cont, {:ok, count + 1}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+
+        case result do
+          {:ok, count} -> {:ok, count}
+          {:error, reason} -> throw({:rollback, reason})
         end
       end)
-
-      {:ok, length(rows)}
-    end)
+    rescue
+      e -> {:error, Exception.message(e)}
+    catch
+      {:rollback, reason} -> {:error, reason}
+    end
   end
 
-  defp insert_direct_batch(batch, table, context) do
-    raise "insert_direct_batch/3 is not yet implemented"
+  defp insert_direct_batch(_batch, _table, _context) do
+    {:error, :not_implemented}
   end
 end
