@@ -30,6 +30,8 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
     END;
     """
 
+    priority = Message.get_header(message, "priority", 5)
+
     params = [
       message_id: message.id,
       correlation_id: message.correlation_id,
@@ -38,7 +40,7 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
       routing_key: message.routing_key,
       payload: Jason.encode!(message.payload),
       format: "JSON",
-      priority: message.priority,
+      priority: priority,
       out: {:out, :string}
     ]
 
@@ -71,6 +73,8 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
     END;
     """
 
+    priority = Message.get_header(message, "priority", 5)
+
     params = [
       message_id: message.id,
       correlation_id: message.correlation_id,
@@ -79,7 +83,7 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
       routing_key: message.routing_key,
       payload: Jason.encode!(message.payload),
       format: "JSON",
-      priority: message.priority,
+      priority: priority,
       target_format: target_format,
       out_payload: {:out, :string},
       out_format: {:out, :string}
@@ -305,6 +309,8 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
     ) RETURNING id INTO :out
     """
 
+    priority = Message.get_header(message, "priority", 5)
+
     params = [
       message_id: message.id,
       correlation_id: message.correlation_id,
@@ -313,7 +319,7 @@ defmodule GprintEx.Integration.DB.IntegrationOperations do
       destination: message.routing_key,
       routing_key: message.routing_key,
       payload: Jason.encode!(message.payload),
-      priority: message.priority,
+      priority: priority,
       status: status,
       out: {:out, :integer}
     ]

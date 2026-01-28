@@ -81,7 +81,7 @@ defmodule GprintEx.Integration.DB.ETLOperations do
   def bulk_load_to_staging(session_id, entity_type, records) when is_list(records) do
     results =
       Enum.map(records, fn record ->
-        entity_id = Map.get(record, :id) || Map.get(record, "id") || UUID.uuid4()
+        entity_id = Map.get(record, :id) || Map.get(record, "id") || generate_id()
         load_to_staging(session_id, entity_type, to_string(entity_id), record)
       end)
 
@@ -329,5 +329,88 @@ defmodule GprintEx.Integration.DB.ETLOperations do
       {:ok, [count]} -> {:ok, count}
       {:error, error} -> {:error, error}
     end
+  end
+
+  @doc """
+  List sessions for a tenant with optional filters.
+  """
+  @spec list_sessions(String.t(), String.t() | nil, String.t() | nil, non_neg_integer()) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_sessions(tenant_id, status_filter \\ nil, source_filter \\ nil, limit \\ 50) do
+    {where_clause, params} = build_list_where_clause(tenant_id, status_filter, source_filter)
+
+    sql = """
+    SELECT session_id, tenant_id, source_system, status,
+           total_records, valid_records, error_records, promoted_records,
+           created_at, completed_at
+    FROM etl_sessions
+    WHERE #{where_clause}
+    ORDER BY created_at DESC
+    FETCH FIRST :limit ROWS ONLY
+    """
+
+    params = params ++ [limit: limit]
+
+    case OracleConnection.query(:gprint_pool, sql, params) do
+      {:ok, rows} ->
+        sessions = Enum.map(rows, &row_to_session_map/1)
+        {:ok, sessions}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp build_list_where_clause(tenant_id, status_filter, source_filter) do
+    conditions = ["tenant_id = :tenant_id"]
+    params = [tenant_id: tenant_id]
+
+    {conditions, params} =
+      if status_filter do
+        {conditions ++ ["status = :status"], params ++ [status: String.upcase(status_filter)]}
+      else
+        {conditions, params}
+      end
+
+    {conditions, params} =
+      if source_filter do
+        {conditions ++ ["source_system = :source"], params ++ [source: source_filter]}
+      else
+        {conditions, params}
+      end
+
+    {Enum.join(conditions, " AND "), params}
+  end
+
+  defp row_to_session_map(row) do
+    status = String.downcase(row[:status] || "unknown")
+    status_atom = case status do
+      "created" -> :created
+      "loading" -> :loading
+      "transforming" -> :transforming
+      "validating" -> :validating
+      "promoting" -> :promoting
+      "completed" -> :completed
+      "failed" -> :failed
+      "rolled_back" -> :rolled_back
+      _ -> :unknown
+    end
+
+    %{
+      session_id: row[:session_id],
+      tenant_id: row[:tenant_id],
+      source_system: row[:source_system],
+      status: status_atom,
+      total_records: row[:total_records] || 0,
+      valid_records: row[:valid_records] || 0,
+      error_records: row[:error_records] || 0,
+      promoted_records: row[:promoted_records] || 0,
+      created_at: row[:created_at],
+      completed_at: row[:completed_at]
+    }
+  end
+
+  defp generate_id do
+    :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
   end
 end

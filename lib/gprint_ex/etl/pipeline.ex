@@ -466,4 +466,30 @@ defmodule GprintEx.ETL.Pipeline do
       %{name: step.name, type: step.type, reason: reason}
     )
   end
+
+  @doc """
+  Get a pipeline by session ID.
+  Note: This is a placeholder - actual implementation would use ETS or database storage.
+  """
+  @spec get_by_session(String.t()) :: {:ok, t()} | {:error, :not_found}
+  def get_by_session(_session_id) do
+    # TODO: Implement session lookup from storage (ETS, database, etc.)
+    {:error, :not_found}
+  end
+
+  @doc """
+  Cancel a running pipeline.
+  """
+  @spec cancel(String.t()) :: :ok | {:error, term()}
+  def cancel(session_id) do
+    # TODO: Implement cancellation logic
+    # This would involve:
+    # 1. Looking up the running pipeline
+    # 2. Sending a cancellation signal
+    # 3. Rolling back the ETL session
+    case rollback_session(session_id) do
+      :ok -> :ok
+      error -> error
+    end
+  end
 end

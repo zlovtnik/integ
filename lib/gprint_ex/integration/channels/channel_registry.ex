@@ -106,11 +106,18 @@ defmodule GprintEx.Integration.Channels.ChannelRegistry do
   end
 
   @doc """
+  Get a channel by name (alias for lookup).
+  """
+  @spec get_channel(atom()) :: {:ok, pid()} | {:error, :not_found}
+  def get_channel(channel_name), do: lookup(channel_name)
+
+  @doc """
   List all registered channels.
   """
-  @spec list_channels() :: [{atom(), pid()}]
+  @spec list_channels() :: {:ok, [{atom(), pid()}]}
   def list_channels do
-    Registry.select(@registry_name, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
+    channels = Registry.select(@registry_name, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
+    {:ok, channels}
   end
 
   @doc """
