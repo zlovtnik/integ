@@ -75,13 +75,21 @@ defmodule GprintExWeb.ContractController do
   def update(conn, %{"id" => id, "contract" => contract_params}) do
     ctx = AuthPlug.tenant_context(conn)
 
-    with {:ok, contract} <- Contracts.update(ctx, parse_int(id), contract_params) do
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        data: Contract.to_response(contract)
-      })
+    case parse_int(id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
+
+      parsed_id ->
+        with {:ok, contract} <- Contracts.update(ctx, parsed_id, contract_params) do
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            data: Contract.to_response(contract)
+          })
+        end
     end
   end
 
@@ -93,24 +101,41 @@ defmodule GprintExWeb.ContractController do
   def delete(conn, %{"id" => id}) do
     ctx = AuthPlug.tenant_context(conn)
 
-    with :ok <- Contracts.delete(ctx, parse_int(id)) do
-      conn
-      |> put_status(:no_content)
-      |> send_resp(:no_content, "")
+    case parse_int(id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
+
+      parsed_id ->
+        with :ok <- Contracts.delete(ctx, parsed_id) do
+          conn
+          |> put_status(:no_content)
+          |> send_resp(:no_content, "")
+        end
     end
   end
 
   def transition(conn, %{"contract_id" => contract_id, "status" => new_status}) do
     ctx = AuthPlug.tenant_context(conn)
-    status_atom = parse_atom(new_status)
 
-    with {:ok, contract} <- Contracts.transition_status(ctx, parse_int(contract_id), status_atom) do
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        data: Contract.to_response(contract)
-      })
+    case parse_int(contract_id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
+
+      parsed_id ->
+        status_atom = parse_atom(new_status)
+
+        with {:ok, contract} <- Contracts.transition_status(ctx, parsed_id, status_atom) do
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            data: Contract.to_response(contract)
+          })
+        end
     end
   end
 

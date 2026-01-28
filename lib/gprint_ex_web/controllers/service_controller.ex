@@ -36,13 +36,21 @@ defmodule GprintExWeb.ServiceController do
   def show(conn, %{"id" => id}) do
     ctx = AuthPlug.tenant_context(conn)
 
-    with {:ok, service} <- Services.get_by_id(ctx, parse_int(id)) do
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        data: Service.to_response(service)
-      })
+    case safe_parse_int(id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid service ID"}})
+
+      {:ok, parsed_id} ->
+        with {:ok, service} <- Services.get_by_id(ctx, parsed_id) do
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            data: Service.to_response(service)
+          })
+        end
     end
   end
 
@@ -66,13 +74,21 @@ defmodule GprintExWeb.ServiceController do
   def update(conn, %{"id" => id, "service" => service_params}) do
     ctx = AuthPlug.tenant_context(conn)
 
-    with {:ok, service} <- Services.update(ctx, parse_int(id), service_params) do
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        data: Service.to_response(service)
-      })
+    case safe_parse_int(id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid service ID"}})
+
+      {:ok, parsed_id} ->
+        with {:ok, service} <- Services.update(ctx, parsed_id, service_params) do
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            data: Service.to_response(service)
+          })
+        end
     end
   end
 
@@ -84,10 +100,18 @@ defmodule GprintExWeb.ServiceController do
   def delete(conn, %{"id" => id}) do
     ctx = AuthPlug.tenant_context(conn)
 
-    with :ok <- Services.delete(ctx, parse_int(id)) do
-      conn
-      |> put_status(:no_content)
-      |> send_resp(:no_content, "")
+    case safe_parse_int(id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid service ID"}})
+
+      {:ok, parsed_id} ->
+        with :ok <- Services.delete(ctx, parsed_id) do
+          conn
+          |> put_status(:no_content)
+          |> send_resp(:no_content, "")
+        end
     end
   end
 
@@ -103,6 +127,7 @@ defmodule GprintExWeb.ServiceController do
 
   @allowed_service_types ~w(recurring one_time usage_based)
 
+  # parse_int used for optional filter params (returns nil on invalid)
   defp parse_int(nil), do: nil
   defp parse_int(val) when is_integer(val), do: val
 
@@ -112,6 +137,18 @@ defmodule GprintExWeb.ServiceController do
       _ -> nil
     end
   end
+
+  # safe_parse_int used for required ID params (returns error on invalid)
+  defp safe_parse_int(val) when is_integer(val), do: {:ok, val}
+
+  defp safe_parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {int, ""} -> {:ok, int}
+      _ -> {:error, :invalid_id}
+    end
+  end
+
+  defp safe_parse_int(_), do: {:error, :invalid_id}
 
   defp parse_bool("true"), do: true
   defp parse_bool("false"), do: false

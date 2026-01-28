@@ -10,83 +10,144 @@
 HTTP (Phoenix/Plug) → Boundaries (Contexts) → Domain (Pure) → Infrastructure (Effects)
 ```
 
-- **Domain** (`lib/gprint_ex/domain/`): Pure structs + functions, NO side effects. Validation, transformations, state machines.
-- **Boundaries** (`lib/gprint_ex/boundaries/`): Public API contexts that orchestrate domain logic with infra effects.
-- **Infrastructure** (`lib/gprint_ex/infrastructure/`): Oracle DB, Keycloak auth, external integrations.
-- **Web** (`lib/gprint_ex_web/`): Controllers delegate to boundaries, use `action_fallback` for error handling.
+| Layer | Location | Rules |
+|-------|----------|-------|
+| **Domain** | `lib/gprint_ex/domain/` | Pure structs + functions. NO side effects, NO imports from other layers. |
+| **Boundaries** | `lib/gprint_ex/boundaries/` | Public API contexts. Orchestrate domain + infrastructure. |
+| **Infrastructure** | `lib/gprint_ex/infrastructure/` | Oracle DB, Keycloak, external integrations. All side effects here. |
+| **Web** | `lib/gprint_ex_web/` | Controllers delegate to boundaries. Never call infrastructure directly. |
 
 ## Core Patterns
 
-### Railway-Oriented Programming (Result Tuples)
+### Railway-Oriented Programming
 All operations return `{:ok, value} | {:error, reason}`. Use `GprintEx.Result` for chaining:
 
 ```elixir
-# Chain with flat_map or with
+# Preferred: with for multi-step operations
 with {:ok, customer} <- Customer.new(params),
      {:ok, id} <- CustomerQueries.insert(customer, user),
      {:ok, created} <- get_by_id(ctx, id) do
   {:ok, created}
 end
+
+# Result module helpers for transformations
+Result.map({:ok, list}, &Enum.count/1)           # {:ok, 5}
+Result.traverse(items, &process/1)               # Collect all or fail fast
+Result.from_nilable(nil, :not_found)             # {:error, :not_found}
 ```
 
-Key `Result` functions: `map/2`, `flat_map/2`, `sequence/1`, `traverse/2`, `from_nilable/2`
-
-### Domain Structs
-Always include `@type t`, `@enforce_keys`, `new/1` with validation, `from_row/1` for DB mapping:
+### Domain Struct Template
+New domain modules must include these elements (see [customer.ex](lib/gprint_ex/domain/customer.ex)):
 
 ```elixir
-@spec new(map()) :: {:ok, t()} | {:error, :validation_failed, [String.t()]}
-def new(params), do: with {:ok, validated} <- validate(params), do: {:ok, struct!(__MODULE__, validated)}
+defmodule GprintEx.Domain.Entity do
+  @type t :: %__MODULE__{...}
+  @enforce_keys [:tenant_id, :required_field]
+  defstruct [...]
+
+  @spec new(map()) :: {:ok, t()} | {:error, :validation_failed, [String.t()]}
+  def new(params), do: with {:ok, v} <- validate(params), do: {:ok, struct!(__MODULE__, v)}
+
+  # Placeholder validation function - implement to return {:ok, validated_params} or {:error, :validation_failed, [errors]}
+  # Example: defp validate(params) do
+  #   # Validate required fields, types, etc.
+  #   # Return {:ok, params} or {:error, :validation_failed, ["error message"]}
+  # end
+
+  @spec from_row(map()) :: {:ok, t()} | {:error, term()}
+  def from_row(row), do: ...  # Oracle row → struct
+
+  @spec to_response(t()) :: map()
+  def to_response(entity), do: ...  # Struct → JSON-safe map
+end
 ```
 
 ### Tenant Context
-All boundary operations require tenant context from JWT:
+All boundary operations require tenant context extracted from JWT:
+
 ```elixir
-@type tenant_context :: %{tenant_id: String.t(), user: String.t()}
+# In boundaries - always pattern match tenant context
+@spec create(tenant_context(), map()) :: Result.t(Entity.t())
 def create(%{tenant_id: tenant_id, user: user}, params), do: ...
+
+# In controllers - extract via AuthPlug
+ctx = AuthPlug.tenant_context(conn)  # %{tenant_id: _, user: _, login_session: _}
 ```
 
-Controllers extract via `AuthPlug.tenant_context(conn)`.
+### Controller Pattern
+Controllers delegate to boundaries and use `action_fallback`:
+
+```elixir
+use Phoenix.Controller
+action_fallback GprintExWeb.FallbackController
+
+def show(conn, %{"id" => id}) do
+  ctx = AuthPlug.tenant_context(conn)
+  with {:ok, entity} <- Entities.get_by_id(ctx, parse_int(id)) do  # parse_int/1 is a project-specific helper
+    json(conn, %{success: true, data: Entity.to_response(entity)})
+  end
+  # Errors automatically handled by FallbackController
+end
+```
 
 ## Developer Workflow
 
 ```bash
-make deps          # Install dependencies
-make dev           # Start dev server with iex
-make test.unit     # Fast domain tests (no DB)
+make deps              # Install dependencies
+make dev               # Start dev server with iex (hot reload)
+make test.unit         # Fast domain tests (no DB, async)
 make test.integration  # Tests with Oracle connection
-make check         # format + credo --strict + dialyzer
+make check             # format + credo --strict + dialyzer (MUST PASS before commit)
 ```
 
-**Quality gates before commit:** `make check` must pass.
+### Testing
+- `test/domain/` - Pure unit tests with `async: true`
+- `test/boundaries/` - Integration tests (require DB)
+- Use factory: `build(:customer)`, `build(:contract, status: :active)`
+- Domain tests should NOT mock - test pure functions directly
 
-### Testing Structure
-- `test/domain/` - Pure function unit tests (async: true)
-- `test/boundaries/` - Context integration tests
-- `test/gprint_ex_web/` - HTTP endpoint tests
-- `test/support/factory.ex` - Use `build(:customer)`, `build(:contract)`, etc.
+```elixir
+# Good domain test
+test "validates email format" do
+  params = %{tenant_id: "t1", customer_code: "C1", name: "X", email: "invalid"}
+  assert {:error, :validation_failed, errors} = Customer.new(params)
+  assert "invalid email format" in errors
+end
+```
 
-## Code Conventions
+## Error Handling
 
-1. **Validation errors** return `{:error, :validation_failed, [error_strings]}`
-2. **Not found** returns `{:error, :not_found}`
-3. **Domain modules** have `to_response/1` for API serialization
-4. **Controllers** use `action_fallback GprintExWeb.FallbackController`
-5. **Typespecs** required on all public functions
-6. **Pipe-friendly** - design functions for pipeline composition
+| Error Type | Return Value | HTTP Status |
+|------------|--------------|-------------|
+| Validation | `{:error, :validation_failed, [strings]}` | 422 |
+| Not found | `{:error, :not_found}` | 404 |
+| Invalid transition | `{:error, :invalid_transition}` | 422 |
+| Other | `{:error, reason}` | 500 (logged, generic response) |
 
 ## Oracle Database
 
-- Uses `jamdb_oracle` with wallet authentication (no Ecto)
-- Connection pool via `poolboy` in `OracleRepo`
-- Raw SQL in `infrastructure/repo/queries/` modules
-- Row → struct mapping in domain `from_row/1` functions
+- Uses `jamdb_oracle` with wallet authentication (NOT Ecto)
+- Connection pool via DBConnection in [oracle_connection.ex](lib/gprint_ex/infrastructure/repo/oracle_connection.ex)
+- Raw SQL queries in `infrastructure/repo/queries/*.ex`
+- Row mapping: `%{column_name: value}` atoms (lowercase)
 - Environment: `ORACLE_WALLET_PATH`, `ORACLE_TNS_ALIAS`, `ORACLE_USER`, `ORACLE_PASSWORD`
+
+```elixir
+# Query pattern in *_queries.ex modules
+def find_by_id(tenant_id, id) do
+  sql = "SELECT * FROM customers WHERE tenant_id = :1 AND id = :2"
+  OracleConnection.query(:gprint_pool, sql, [tenant_id, id])
+end
+```
 
 ## Key Files
 
-- [elixir-integration-spec.md](elixir-integration-spec.md) - Full architecture spec with code examples
-- [lib/gprint_ex/result.ex](lib/gprint_ex/result.ex) - Result monad utilities
-- [lib/gprint_ex/domain/customer.ex](lib/gprint_ex/domain/customer.ex) - Domain struct pattern example
-- [lib/gprint_ex/boundaries/customers.ex](lib/gprint_ex/boundaries/customers.ex) - Context API pattern
-- [test/support/factory.ex](test/support/factory.ex) - Test data builders
+| Purpose | File |
+|---------|------|
+| Full architecture spec | [elixir-integration-spec.md](elixir-integration-spec.md) |
+| Result utilities | [lib/gprint_ex/result.ex](lib/gprint_ex/result.ex) |
+| Domain pattern example | [lib/gprint_ex/domain/customer.ex](lib/gprint_ex/domain/customer.ex) |
+| Boundary pattern | [lib/gprint_ex/boundaries/customers.ex](lib/gprint_ex/boundaries/customers.ex) |
+| Controller pattern | [lib/gprint_ex_web/controllers/customer_controller.ex](lib/gprint_ex_web/controllers/customer_controller.ex) |
+| Error handling | [lib/gprint_ex_web/controllers/fallback_controller.ex](lib/gprint_ex_web/controllers/fallback_controller.ex) |
+| Test factories | [test/support/factory.ex](test/support/factory.ex) |

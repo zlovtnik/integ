@@ -28,7 +28,8 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
     %{
       id: __MODULE__,
       start: {__MODULE__, :start_link, [opts]},
-      type: :supervisor
+      type: :worker,
+      shutdown: 5_000
     }
   end
 
@@ -43,30 +44,38 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
     # Read TNS description from tnsnames.ora
     description = read_tns_description(wallet_path, tns_alias)
 
+    # SSL options for Oracle ADB with wallet authentication
+    # cwallet.sso is the auto-login wallet file containing the CA certificate
+    ssl_opts = [
+      cacertfile: Path.join(wallet_path, "cwallet.sso"),
+      verify: :verify_none
+    ]
+
     # Build jamdb_oracle connection options
-    # Note: hostname/database are required by the Elixir wrapper's to_list calls
-    # but are overridden by :description at the Erlang layer
+    # IMPORTANT: Both 'description' and 'ssl' must be passed via 'parameters' option
+    # because the Elixir wrapper only forwards 'parameters' to the Erlang layer
     conn_opts = [
       name: name,
-      hostname: "adb",
+      hostname: "adb.us-chicago-1.oraclecloud.com",
+      port: 1522,
       database: tns_alias,
       username: user,
       password: password,
-      description: description,
       timeout: 30_000,
       pool_size: pool_size,
-      ssl: [
-        cacertfile: Path.join(wallet_path, "cwallet.sso")
+      # Pass description and ssl through parameters - forwarded to erlang layer
+      parameters: [
+        description: description,
+        ssl: ssl_opts
       ]
     ]
 
-    Logger.info(
-      "Starting Oracle connection pool '#{inspect(name)}' with #{pool_size} connections to #{tns_alias}"
-    )
-
+    # Simply start the pool - DBConnection handles name registration
     case DBConnection.start_link(Jamdb.Oracle, conn_opts) do
       {:ok, pid} ->
-        Logger.info("Oracle connection pool started successfully: #{inspect(pid)}")
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
         {:ok, pid}
 
       {:error, reason} = error ->
@@ -78,7 +87,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
   @doc """
   Execute a query and return results as a list of maps.
   """
-  @spec query(DBConnection.conn(), String.t(), [term()], keyword()) ::
+  @spec query(DBConnection.conn() | GenServer.name(), String.t(), [term()], keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def query(conn, sql, params \\ [], opts \\ []) do
     query_struct = %Jamdb.Oracle.Query{statement: sql, name: "", batch: false}
@@ -109,7 +118,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
   @doc """
   Execute an insert/update/delete statement.
   """
-  @spec execute(DBConnection.conn(), String.t(), [term()], keyword()) ::
+  @spec execute(DBConnection.conn() | GenServer.name(), String.t(), [term()], keyword()) ::
           :ok | {:ok, term()} | {:error, term()}
   def execute(conn, sql, params \\ [], opts \\ []) do
     query_struct = %Jamdb.Oracle.Query{statement: sql, name: "", batch: false}
@@ -128,34 +137,64 @@ defmodule GprintEx.Infrastructure.Repo.OracleConnection do
 
   Uses Oracle savepoints for rollback support.
   """
-  @spec transaction(DBConnection.conn(), (DBConnection.conn() -> term()), keyword()) ::
+  @spec transaction(
+          DBConnection.conn() | GenServer.name(),
+          (DBConnection.conn() -> term()),
+          keyword()
+        ) ::
           {:ok, term()} | {:error, term()}
   def transaction(conn, fun, opts \\ []) when is_function(fun, 1) do
-    with :ok <- execute_simple(conn, "SAVEPOINT txn_start", opts) do
-      case fun.(conn) do
-        {:ok, value} ->
-          case execute_simple(conn, "COMMIT", opts) do
-            :ok ->
-              {:ok, value}
+    DBConnection.run(
+      conn,
+      fn conn_pid ->
+        with :ok <- execute_simple(conn_pid, "SAVEPOINT txn_start", opts) do
+          try do
+            case fun.(conn_pid) do
+              {:ok, value} ->
+                case execute_simple(conn_pid, "COMMIT", opts) do
+                  :ok ->
+                    {:ok, value}
 
-            {:error, commit_reason} ->
-              Logger.error("Transaction COMMIT failed: #{inspect(commit_reason)}")
-              # Attempt rollback to restore clean connection state
-              _ = execute_simple(conn, "ROLLBACK TO txn_start", opts)
-              {:error, {:commit_failed, commit_reason}}
+                  {:error, commit_reason} ->
+                    Logger.error("Transaction COMMIT failed: #{inspect(commit_reason)}")
+                    # Attempt rollback to restore clean connection state
+                    _ = execute_simple(conn_pid, "ROLLBACK TO txn_start", opts)
+                    {:error, {:commit_failed, commit_reason}}
+                end
+
+              {:error, reason} ->
+                case execute_simple(conn_pid, "ROLLBACK TO txn_start", opts) do
+                  :ok ->
+                    {:error, reason}
+
+                  {:error, rollback_reason} ->
+                    Logger.error("Transaction ROLLBACK failed: #{inspect(rollback_reason)}")
+                    {:error, {:rollback_failed, reason, rollback_reason}}
+                end
+
+              returned_value ->
+                Logger.error(
+                  "Transaction function returned unexpected value: #{inspect(returned_value)}"
+                )
+
+                _ = execute_simple(conn_pid, "ROLLBACK TO txn_start", opts)
+                {:error, {:invalid_return, returned_value}}
+            end
+          rescue
+            e ->
+              stacktrace = __STACKTRACE__
+
+              Logger.error(
+                "Transaction raised exception: #{Exception.format(:error, e, stacktrace)}"
+              )
+
+              _ = execute_simple(conn_pid, "ROLLBACK TO txn_start", opts)
+              {:error, {:exception, e, stacktrace}}
           end
-
-        {:error, reason} ->
-          case execute_simple(conn, "ROLLBACK TO txn_start", opts) do
-            :ok ->
-              {:error, reason}
-
-            {:error, rollback_reason} ->
-              Logger.error("Transaction ROLLBACK failed: #{inspect(rollback_reason)}")
-              {:error, {:rollback_failed, reason, rollback_reason}}
-          end
-      end
-    end
+        end
+      end,
+      opts
+    )
   end
 
   # Private functions

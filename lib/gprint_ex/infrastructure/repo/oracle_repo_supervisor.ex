@@ -23,7 +23,7 @@ defmodule GprintEx.Infrastructure.Repo.OracleRepoSupervisor do
   alias GprintEx.Infrastructure.Repo.OracleConnection
 
   @pool_name GprintEx.OraclePool
-  @default_pool_size 10
+  @default_pool_size 2
   # Configurable call timeout (default 30 seconds, use Application.get_env to override)
   @call_timeout Application.compile_env(:gprint_ex, :oracle_call_timeout, 30_000)
 
@@ -31,7 +31,28 @@ defmodule GprintEx.Infrastructure.Repo.OracleRepoSupervisor do
 
   @doc "Start the Oracle connection pool supervisor"
   def start_link(opts \\ []) do
-    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+    result = Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+
+    case result do
+      {:ok, pid} ->
+        # Only log on genuine first start - check if we've logged before
+        # using persistent_term to track across potential code reloads
+        unless :persistent_term.get({__MODULE__, :started}, false) do
+          pool_size = Keyword.get(opts, :pool_size, @default_pool_size)
+          Logger.info("Oracle connection pool ready (#{pool_size} connections)")
+          :persistent_term.put({__MODULE__, :started}, true)
+        end
+
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
+        Logger.debug("OracleRepoSupervisor already started (pid: #{inspect(pid)})")
+        {:ok, pid}
+
+      error ->
+        Logger.error("OracleRepoSupervisor failed to start: #{inspect(error)}")
+        error
+    end
   end
 
   @doc "Execute a query with positional parameters"

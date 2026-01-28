@@ -43,12 +43,16 @@ defmodule GprintEx.Result do
     |> map(&Enum.reverse/1)
   end
 
-  @doc "Traverse a list with a result-returning function"
+  @doc "Traverse a list with a result-returning function (short-circuits on first error)"
   @spec traverse([a], (a -> t(b))) :: t([b]) when a: var, b: var
   def traverse(list, fun) do
-    list
-    |> Enum.map(fun)
-    |> sequence()
+    Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
+      case fun.(item) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+    |> map(&Enum.reverse/1)
   end
 
   @doc "Convert nil to error"

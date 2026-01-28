@@ -19,6 +19,9 @@ defmodule GprintEx.Application do
     set_oracle_tns_admin()
 
     children = [
+      # PubSub for Phoenix (required if configured in endpoint)
+      {Phoenix.PubSub, name: GprintEx.PubSub},
+
       # Telemetry supervisor
       GprintEx.Telemetry,
 
@@ -34,7 +37,6 @@ defmodule GprintEx.Application do
 
     opts = [strategy: :one_for_one, name: GprintEx.Supervisor]
 
-    Logger.info("Starting GprintEx application")
     Supervisor.start_link(children, opts)
   end
 

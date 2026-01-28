@@ -276,16 +276,22 @@ defmodule GprintEx.Domain.Contract do
       start_date: parse_date(Map.get(params, :start_date) || Map.get(params, "start_date")),
       end_date: parse_date(Map.get(params, :end_date) || Map.get(params, "end_date")),
       duration_months: Map.get(params, :duration_months) || Map.get(params, "duration_months"),
-      auto_renew: Map.get(params, :auto_renew, false),
-      total_value: parse_decimal(Map.get(params, :total_value)),
-      payment_terms: Map.get(params, :payment_terms),
-      billing_cycle: Map.get(params, :billing_cycle, "MONTHLY"),
-      status: normalize_status(Map.get(params, :status)) || :draft,
-      signed_at: Map.get(params, :signed_at),
-      signed_by: Map.get(params, :signed_by),
-      notes: Map.get(params, :notes)
+      auto_renew: coalesce(Map.get(params, :auto_renew), Map.get(params, "auto_renew"), false),
+      total_value: parse_decimal(Map.get(params, :total_value) || Map.get(params, "total_value")),
+      payment_terms: Map.get(params, :payment_terms) || Map.get(params, "payment_terms"),
+      billing_cycle:
+        coalesce(Map.get(params, :billing_cycle), Map.get(params, "billing_cycle"), "MONTHLY"),
+      status: normalize_status(Map.get(params, :status) || Map.get(params, "status")) || :draft,
+      signed_at: Map.get(params, :signed_at) || Map.get(params, "signed_at"),
+      signed_by: Map.get(params, :signed_by) || Map.get(params, "signed_by"),
+      notes: Map.get(params, :notes) || Map.get(params, "notes")
     }
   end
+
+  # Returns first non-nil value, or default
+  defp coalesce(nil, nil, default), do: default
+  defp coalesce(nil, val, _default), do: val
+  defp coalesce(val, _other, _default), do: val
 
   defp normalize_contract_type("SERVICE"), do: :service
   defp normalize_contract_type("RECURRING"), do: :recurring

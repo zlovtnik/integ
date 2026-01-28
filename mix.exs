@@ -45,7 +45,9 @@ defmodule GprintEx.MixProject do
       {:finch, "~> 0.16"},
 
       # Oracle Database
-      {:jamdb_oracle, "~> 0.5"},
+      # Local patched version for OTP 27+/28 SSL socket compatibility fix
+      # See: https://github.com/erlangbureau/jamdb_oracle/issues/190
+      {:jamdb_oracle, path: "deps_local/jamdb_oracle", override: true},
 
       # Auth
       # JOSE 1.11.x - latest stable for JWT handling

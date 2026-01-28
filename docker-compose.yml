@@ -59,6 +59,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:23.0
     container_name: gprint_keycloak
+    entrypoint: /opt/keycloak/entrypoint.sh
     command: ${KEYCLOAK_MODE:-start-dev}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
@@ -71,12 +72,13 @@ services:
       - KC_DB_USERNAME=keycloak
       - KC_DB_PASSWORD=${KEYCLOAK_DB_PASSWORD:-keycloak}
       # Production TLS settings (required when KEYCLOAK_MODE=start)
-      # Use :? syntax to enforce values when KEYCLOAK_MODE=start
-      - KC_HOSTNAME=${KC_HOSTNAME:?KC_HOSTNAME required for production mode}
-      - KC_HTTPS_CERTIFICATE_FILE=${KC_HTTPS_CERTIFICATE_FILE:?KC_HTTPS_CERTIFICATE_FILE required for production mode}
-      - KC_HTTPS_CERTIFICATE_KEY_FILE=${KC_HTTPS_CERTIFICATE_KEY_FILE:?KC_HTTPS_CERTIFICATE_KEY_FILE required for production mode}
+      # Use :- syntax to allow empty values for dev mode (start-dev doesn't need TLS)
+      - KC_HOSTNAME=${KC_HOSTNAME:-}
+      - KC_HTTPS_CERTIFICATE_FILE=${KC_HTTPS_CERTIFICATE_FILE:-}
+      - KC_HTTPS_CERTIFICATE_KEY_FILE=${KC_HTTPS_CERTIFICATE_KEY_FILE:-}
     volumes:
       - ${KEYCLOAK_TLS_CERTS_PATH:-./certs}:/opt/keycloak/certs:ro
+      - ./keycloak-entrypoint.sh:/opt/keycloak/entrypoint.sh:ro
     depends_on:
       keycloak_db:
         condition: service_healthy

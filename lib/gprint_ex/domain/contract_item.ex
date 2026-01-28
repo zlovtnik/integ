@@ -10,7 +10,7 @@ defmodule GprintEx.Domain.ContractItem do
           id: pos_integer() | nil,
           tenant_id: Types.tenant_id(),
           contract_id: pos_integer(),
-          line_number: pos_integer(),
+          line_number: pos_integer() | nil,
           service_id: pos_integer() | nil,
           description: String.t(),
           quantity: Decimal.t(),
@@ -106,6 +106,7 @@ defmodule GprintEx.Domain.ContractItem do
       |> validate_required(params, :tenant_id)
       |> validate_required(params, :contract_id)
       |> validate_required(params, :description)
+      |> validate_required(params, :quantity)
       |> validate_positive(params, :quantity)
       |> validate_non_negative(params, :unit_price)
 

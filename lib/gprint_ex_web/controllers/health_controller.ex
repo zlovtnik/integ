@@ -11,12 +11,18 @@ defmodule GprintExWeb.HealthController do
 
   @doc "General health check"
   def index(conn, _params) do
+    version =
+      case Application.spec(:gprint_ex, :vsn) do
+        nil -> "unknown"
+        vsn -> to_string(vsn)
+      end
+
     conn
     |> put_status(:ok)
     |> json(%{
       status: "healthy",
       service: "gprint_ex",
-      version: Application.spec(:gprint_ex, :vsn) |> to_string(),
+      version: version,
       timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
     })
   end

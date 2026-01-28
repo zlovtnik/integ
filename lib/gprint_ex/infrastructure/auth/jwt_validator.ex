@@ -22,7 +22,7 @@ defmodule GprintEx.Infrastructure.Auth.JwtValidator do
   @doc "Validate JWT token and extract claims"
   @spec validate(String.t()) ::
           {:ok, claims()} | {:error, :invalid_token | :expired | :missing_claims}
-  def validate(token) when is_binary(token) do
+  def validate(token) when is_binary(token) and byte_size(token) > 0 do
     secret = jwt_secret()
 
     with {:ok, claims} <- decode_and_verify(token, secret),

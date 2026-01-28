@@ -21,7 +21,7 @@ defmodule GprintEx.Boundaries.Services do
   @spec get_by_id(tenant_context(), pos_integer()) :: Result.t(Service.t())
   def get_by_id(%{tenant_id: _tenant_id}, _id) do
     # TODO: Implement with ServiceQueries
-    {:error, :not_found}
+    {:error, :not_implemented}
   end
 
   @doc "List services with filters and pagination"
@@ -38,13 +38,13 @@ defmodule GprintEx.Boundaries.Services do
   @spec update(tenant_context(), pos_integer(), map()) :: Result.t(Service.t())
   def update(%{tenant_id: _tenant_id}, _id, _changes) do
     # TODO: Implement with ServiceQueries
-    {:error, :not_found}
+    {:error, :not_implemented}
   end
 
   @doc "Delete service"
   @spec delete(tenant_context(), pos_integer()) :: :ok | {:error, term()}
   def delete(%{tenant_id: _tenant_id}, _id) do
     # TODO: Implement with ServiceQueries
-    :ok
+    {:error, :not_implemented}
   end
 end

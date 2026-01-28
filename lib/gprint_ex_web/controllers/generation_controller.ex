@@ -14,21 +14,29 @@ defmodule GprintExWeb.GenerationController do
     ctx = AuthPlug.tenant_context(conn)
     template = params["template"] || "default"
 
-    with {:ok, document} <-
-           Generation.generate_contract_document(ctx, parse_int(contract_id), template) do
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        data: %{
-          document_id: document.id,
-          filename: document.filename,
-          content_type: document.content_type,
-          size_bytes: document.size_bytes,
-          download_url: "/api/v1/contracts/#{contract_id}/document?document_id=#{document.id}",
-          generated_at: document.generated_at
-        }
-      })
+    case parse_int(contract_id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
+
+      parsed_id ->
+        with {:ok, document} <-
+               Generation.generate_contract_document(ctx, parsed_id, template) do
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            data: %{
+              document_id: document.id,
+              filename: document.filename,
+              content_type: document.content_type,
+              size_bytes: document.size_bytes,
+              download_url: "/api/v1/contracts/#{contract_id}/document?document_id=#{document.id}",
+              generated_at: document.generated_at
+            }
+          })
+        end
     end
   end
 
@@ -36,15 +44,23 @@ defmodule GprintExWeb.GenerationController do
     ctx = AuthPlug.tenant_context(conn)
     document_id = params["document_id"]
 
-    with {:ok, {document, content}} <-
-           Generation.get_document(ctx, parse_int(contract_id), document_id) do
-      # Sanitize filename to prevent header injection
-      safe_filename = sanitize_filename(document.filename)
+    case parse_int(contract_id) do
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, error: %{code: "INVALID_ID", message: "Invalid contract ID"}})
 
-      conn
-      |> put_resp_content_type(document.content_type)
-      |> put_resp_header("content-disposition", ~s(attachment; filename="#{safe_filename}"))
-      |> send_resp(:ok, content)
+      parsed_id ->
+        with {:ok, {document, content}} <-
+               Generation.get_document(ctx, parsed_id, document_id) do
+          # Sanitize filename to prevent header injection
+          safe_filename = sanitize_filename(document.filename)
+
+          conn
+          |> put_resp_content_type(document.content_type)
+          |> put_resp_header("content-disposition", ~s(attachment; filename="#{safe_filename}"))
+          |> send_resp(:ok, content)
+        end
     end
   end
 
@@ -67,7 +83,9 @@ defmodule GprintExWeb.GenerationController do
   defp parse_int(val) when is_binary(val) do
     case Integer.parse(val) do
       {int, ""} -> int
-      _ -> nil
+      _ -> {:error, :invalid_id}
     end
   end
+
+  defp parse_int(_), do: {:error, :invalid_id}
 end

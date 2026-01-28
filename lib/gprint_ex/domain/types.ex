@@ -54,8 +54,8 @@ defmodule GprintEx.Domain.Types do
   def build_address(_), do: nil
 
   @doc "Calculate pagination metadata"
-  @spec paginate(non_neg_integer(), pos_integer(), pos_integer()) :: pagination()
-  def paginate(total, page, page_size) do
+  @spec paginate(non_neg_integer(), pos_integer(), integer()) :: pagination()
+  def paginate(total, page, page_size) when page_size > 0 do
     total_pages = max(1, ceil(total / page_size))
 
     %{
@@ -63,6 +63,16 @@ defmodule GprintEx.Domain.Types do
       page_size: page_size,
       total: total,
       total_pages: total_pages
+    }
+  end
+
+  def paginate(total, page, _page_size) do
+    # Guard against page_size <= 0 by defaulting to sensible values
+    %{
+      page: page,
+      page_size: 20,
+      total: total,
+      total_pages: max(1, ceil(total / 20))
     }
   end
 end

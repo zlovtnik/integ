@@ -5,8 +5,8 @@ defmodule GprintEx.Boundaries.Contracts do
   """
 
   alias GprintEx.Domain.{Contract, ContractItem, Types}
-  alias GprintEx.Infrastructure.Repo.Queries.ContractQueries
   alias GprintEx.Infrastructure.Repo.OracleRepoSupervisor, as: OracleRepo
+  alias GprintEx.Infrastructure.Repo.Queries.ContractQueries
   alias GprintEx.Result
 
   @type tenant_context :: %{tenant_id: String.t(), user: String.t()}
@@ -88,8 +88,7 @@ defmodule GprintEx.Boundaries.Contracts do
   def transition_status(%{tenant_id: tenant_id, user: user}, id, new_status) do
     with {:ok, contract} <- get_by_id(%{tenant_id: tenant_id}, id),
          {:ok, transitioned} <- Contract.transition(contract, new_status),
-         :ok <- ContractQueries.update_status(tenant_id, id, new_status, user),
-         :ok <- log_history(tenant_id, id, :status_change, contract.status, new_status, user) do
+         :ok <- persist_status_and_history(tenant_id, id, contract.status, new_status, user) do
       {:ok, transitioned}
     end
   end
@@ -133,8 +132,12 @@ defmodule GprintEx.Boundaries.Contracts do
         end
 
       case persisted_item do
-        nil -> {:ok, item}
-        found -> {:ok, found}
+        nil ->
+          # Item was inserted but couldn't be retrieved - indicates a problem
+          {:error, :item_not_persisted}
+
+        found ->
+          {:ok, found}
       end
     end
   end
@@ -164,7 +167,12 @@ defmodule GprintEx.Boundaries.Contracts do
     |> Result.traverse(fn {item, idx} ->
       item_with_line = Map.put(item, :line_number, idx)
 
-      case ContractItem.new(Map.merge(item_with_line, %{tenant_id: "temp", contract_id: 0})) do
+      # Validation requires tenant_id and contract_id but actual values aren't known yet.
+      # These placeholder values are replaced during insert_items with real values.
+      # Consider refactoring validation to separate required-field check from format validation.
+      case ContractItem.new(
+             Map.merge(item_with_line, %{tenant_id: "__validation__", contract_id: -1})
+           ) do
         {:ok, validated} ->
           {:ok, validated}
 
@@ -188,15 +196,29 @@ defmodule GprintEx.Boundaries.Contracts do
     end)
   end
 
-  defp log_history(tenant_id, contract_id, action, old_value, new_value, user) do
+  defp log_history(tenant_id, contract_id, action, field_changed, old_value, new_value, user) do
     ContractQueries.insert_history(%{
       tenant_id: tenant_id,
       contract_id: contract_id,
       action: action,
-      field_changed: "status",
+      field_changed: to_string(field_changed),
       old_value: to_string(old_value),
       new_value: to_string(new_value),
       performed_by: user
     })
+  end
+
+  # Wraps status update and history log in a transaction for atomicity
+  defp persist_status_and_history(tenant_id, id, old_status, new_status, user) do
+    OracleRepo.transaction(fn _conn ->
+      with :ok <- ContractQueries.update_status(tenant_id, id, new_status, user) do
+        log_history(tenant_id, id, :status_change, :status, old_status, new_status, user)
+      end
+    end)
+    |> case do
+      {:ok, {:ok, _}} -> :ok
+      {:ok, {:error, _} = err} -> err
+      {:error, _} = err -> err
+    end
   end
 end

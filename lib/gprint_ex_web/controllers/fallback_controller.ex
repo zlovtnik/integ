@@ -7,6 +7,14 @@ defmodule GprintExWeb.FallbackController do
 
   require Logger
 
+  # Handle bare :not_found atom (from router)
+  def call(conn, :not_found) do
+    conn
+    |> put_status(:not_found)
+    |> put_view(GprintExWeb.ErrorJSON)
+    |> render(:error, code: "NOT_FOUND", message: "Endpoint not found")
+  end
+
   def call(conn, {:error, :not_found}) do
     conn
     |> put_status(:not_found)
